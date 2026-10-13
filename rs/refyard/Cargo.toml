@@ -1,10 +1,11 @@
 [package]
 name = "refyard"
-# description = ""
+description = "Track shared file and directory references across repositories"
 version = "0.0.1"
 edition = "2024"
+rust-version = "1.89"
 # repository = ""
-# license = "" # e.g. `Apache-2.0`
+license = "Apache-2.0"
 # categories = []
 # keywords = []
 # documentation = "" # Alternative documentation
@@ -15,6 +16,15 @@ name = "refyard"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
+directories.workspace = true
+eros.workspace = true
+ignore.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+yaml_serde.workspace = true
 
 [features]
 default = []

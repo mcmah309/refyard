@@ -17,3 +17,8 @@ target/
 # Added by cargo
 
 /target
+
+# Machine-local configuration and generated state
+.env
+.refyard/
+/refyard.registry.yaml
