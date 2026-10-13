@@ -139,8 +139,26 @@ pub fn scan(
     }
     repositories.repositories = discovered.into_iter().collect();
     save_repositories(state_directory, repositories)?;
+    let (projects, manifest_issues) = inspect_projects(&repositories.repositories);
+    issues.extend(manifest_issues);
+    let full_scan = options.full && issues.is_empty();
+    let index = Index {
+        version: 1,
+        repositories: repositories.clone(),
+        projects,
+        issues,
+        full_scan,
+    };
+    write_yaml(&state_directory.join("index.yaml"), &index)?;
+    Ok(index)
+}
+
+/// Read live dependency declarations for known project locations, retaining failures as issues.
+/// This inspects only the supplied locations and does not discover projects or modify state.
+pub fn inspect_projects(directories: &[PathBuf]) -> (Vec<Project>, Vec<ScanIssue>) {
     let mut projects = Vec::new();
-    for directory in &repositories.repositories {
+    let mut issues = Vec::new();
+    for directory in directories {
         match load_manifest(&directory.join("refyard.yaml")) {
             Ok(manifest) => projects.push(Project {
                 path: directory.clone(),
@@ -152,14 +170,5 @@ pub fn scan(
             }),
         }
     }
-    let full_scan = options.full && issues.is_empty();
-    let index = Index {
-        version: 1,
-        repositories: repositories.clone(),
-        projects,
-        issues,
-        full_scan,
-    };
-    write_yaml(&state_directory.join("index.yaml"), &index)?;
-    Ok(index)
+    (projects, issues)
 }

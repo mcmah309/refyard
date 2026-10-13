@@ -77,15 +77,11 @@ fn complete_cli_workflow_tracks_and_cleans_resources() {
         success(root, &["--json", "projects"])[0]["requires"][0]["id"],
         "hf:model"
     );
+    let registry = success(root, &["--json", "registry", "list"]);
+    assert_eq!(registry["artifacts"].as_array().unwrap().len(), 2);
+    assert_eq!(registry["artifacts"][0]["available"], true);
     assert_eq!(
-        success(root, &["--json", "resources"])
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert_eq!(
-        success(root, &["--json", "graph"])["projects"]
+        registry["artifacts"][0]["projects"]
             .as_array()
             .unwrap()
             .len(),
@@ -151,7 +147,7 @@ fn validation_and_incomplete_scans_have_nonzero_status_with_structured_diagnosti
 }
 
 #[test]
-fn cli_rejects_unsafe_full_scan_options_and_removed_init_command() {
+fn cli_rejects_unsafe_full_scan_options_and_removed_commands() {
     let directory = tempdir().unwrap();
     let root = directory.path();
     assert_eq!(
@@ -166,7 +162,9 @@ fn cli_rejects_unsafe_full_scan_options_and_removed_init_command() {
             .code(),
         Some(2)
     );
-    assert_eq!(invoke(root, &["init"]).status.code(), Some(2));
+    for removed in ["init", "resources", "graph"] {
+        assert_eq!(invoke(root, &[removed]).status.code(), Some(2));
+    }
     assert!(invoke(root, &["--help"]).status.success());
     assert!(invoke(root, &["cleanup", "--help"]).status.success());
 }
@@ -299,6 +297,60 @@ fn automatic_registry_creation_preserves_existing_valid_and_invalid_contents() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("Invalid YAML"));
     assert_eq!(fs::read_to_string(&registry).unwrap(), invalid);
+}
+
+#[test]
+fn registry_listing_reads_live_dependencies_and_availability_without_an_index() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    fs::write(root.join("weights"), "weights").unwrap();
+    fs::write(root.join("refyard.registry.yaml"), "artifacts:\n  - id: model\n    revision: abc\n    path: weights\n  - id: model\n    revision: def\n    path: missing\n").unwrap();
+    fs::create_dir(root.join("project")).unwrap();
+    fs::write(
+        root.join("project/refyard.yaml"),
+        "requires:\n  - id: model\n    revision: abc\n",
+    )
+    .unwrap();
+    success(root, &["--json", "repo", "add", "project"]);
+    let listing = success(root, &["--json", "registry", "list"]);
+    assert_eq!(listing["artifacts"][0]["id"], "model");
+    assert_eq!(listing["artifacts"][0]["path"], "weights");
+    assert_eq!(listing["artifacts"][0]["available"], true);
+    assert_eq!(
+        listing["artifacts"][0]["projects"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(listing["artifacts"][1]["available"], false);
+    assert_eq!(listing["artifacts"][1]["projects"], serde_json::json!([]));
+    fs::write(
+        root.join("project/refyard.yaml"),
+        "requires:\n  - id: model\n    revision: def\n",
+    )
+    .unwrap();
+    let updated = success(root, &["--json", "registry", "list"]);
+    assert_eq!(updated["artifacts"][0]["projects"], serde_json::json!([]));
+    assert_eq!(
+        updated["artifacts"][1]["projects"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(!root.join(".refyard/index.yaml").exists());
+    fs::remove_dir_all(root.join("project")).unwrap();
+    let incomplete = invoke(root, &["--json", "registry", "list"]);
+    assert_eq!(incomplete.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&incomplete.stdout).unwrap();
+    assert_eq!(report["issues"].as_array().unwrap().len(), 1);
+    assert!(
+        report["issues"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Could not read")
+    );
 }
 
 #[test]
@@ -435,7 +487,11 @@ fn scan_and_validation_reports_do_not_leak_parser_payloads_or_debug_context() {
         "requires: []\nsuper_secret_field: private-value\n",
     )
     .unwrap();
-    for arguments in [&["--json", "scan"][..], &["--json", "validate"][..]] {
+    for arguments in [
+        &["--json", "scan"][..],
+        &["--json", "validate"][..],
+        &["--json", "registry", "list"][..],
+    ] {
         let output = invoke(root, arguments);
         assert_eq!(output.status.code(), Some(1));
         let report = String::from_utf8(output.stdout).unwrap();

@@ -104,19 +104,18 @@ Delete `index.yaml` at any time and run `refyard scan` to rebuild it. Rebuilding
 
 ```sh
 refyard projects
-refyard resources
+refyard registry list
 refyard refs hf:sentence-transformers/all-MiniLM-L6-v2
 refyard refs hf:sentence-transformers/all-MiniLM-L6-v2 --revision abc123
-refyard graph
 refyard validate
 refyard --json refs hf:sentence-transformers/all-MiniLM-L6-v2
 ```
 
-`projects` shows forward dependencies. `refs` groups reverse lookups by exact identity; omitting its revision filter returns all revisions. Unknown IDs return an empty list, and declared IDs without registry entries still appear in reverse lookups. `resources` combines registry locations, current availability, and indexed project dependents. `graph` shows all indexed project edges, scan inputs, and scan errors.
+`projects` shows forward dependencies. `refs` groups reverse lookups by exact identity; omitting its revision filter returns all revisions. Unknown IDs return an empty list, and declared IDs without registry entries still appear in reverse lookups. `registry list` shows each registered resource's mapping, current availability, and live known project dependents. It works without an index and reports any unreadable project manifests in `issues`, exiting with status 1 when reference information is incomplete.
 
-Lookups use the last index; rerun `scan` after changing manifests. `validate` reads live manifests for all known repositories and checks the current registry, without discovering new repositories or authorizing deletion. It reports unknown identities, unavailable resources, unavailable repositories or roots, and unreferenced resources. Unknown revisions count as unknown identities. Validation exits with status 1 when warnings exist; an unreferenced resource means no *known* project references it and does not alone establish deletion safety.
+`projects` and `refs` use the last index; rerun `scan` after changing manifests. `registry list` and `validate` read live manifests for known repositories without discovering new ones or authorizing deletion. Validation checks the current registry and reports unknown identities, unavailable resources, unavailable repositories or roots, and unreferenced resources. Unknown revisions count as unknown identities. Validation exits with status 1 when warnings exist; an unreferenced resource means no *known* project references it and does not alone establish deletion safety. Scan metadata and traversal errors are included in `scan` output.
 
-Default output is YAML; `--json` provides structured JSON on stdout. Operation errors go to stderr. Exit status 0 indicates success, 1 indicates an operation failure, incomplete scan, or validation warnings, and 2 indicates invalid CLI arguments.
+Default output is YAML; `--json` provides structured JSON on stdout. Operation errors go to stderr. Exit status 0 indicates success, 1 indicates an operation failure, incomplete scan or registry listing, or validation warnings, and 2 indicates invalid CLI arguments.
 
 User-facing errors follow [Eros's application error guidance](https://github.com/mcmah309/eros#exposing-errors-to-application-users): only explicitly approved error types and context marked with `user_context` are presented. Filesystem failures use safe messages based on error kind, and YAML failures show locations without echoing document contents. Unexpected failures receive a generic fallback. Use `--debug-errors` to additionally print full internal diagnostics for a failed command on stderr; this opt-in output may contain paths, source details, and backtraces. `RUST_BACKTRACE=1` alone does not expose diagnostic details in normal error output.
 

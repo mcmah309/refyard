@@ -10,9 +10,10 @@ use eros::ErrorUnion;
 use serde::Serialize;
 
 use crate::{
+    discovery::inspect_projects,
     errors::user_message,
-    manifest::{Artifact, Registry, ResourceKey, load_manifest},
-    storage::{Index, Project, Repositories},
+    manifest::{Artifact, Registry, ResourceKey},
+    storage::{Index, Project, Repositories, ScanIssue},
 };
 
 // Data
@@ -28,10 +29,18 @@ pub struct References {
 /// A registry entry enriched with dependency and local availability information.
 #[derive(Debug, Serialize)]
 pub struct ResourceStatus {
+    #[serde(flatten)]
     pub artifact: Artifact,
     pub local_path: PathBuf,
     pub available: bool,
     pub projects: Vec<PathBuf>,
+}
+
+/// Registry entries with live known dependents and failures that make those references incomplete.
+#[derive(Debug, Serialize)]
+pub struct RegistryListing {
+    pub artifacts: Vec<ResourceStatus>,
+    pub issues: Vec<ScanIssue>,
 }
 
 /// A problem in a manifest, repository, or registry entry.
@@ -98,7 +107,7 @@ pub fn artifact_path(registry_path: &Path, artifact: &Artifact) -> PathBuf {
     }
 }
 
-/// Enrich registry entries with current availability and indexed reverse references.
+/// Enrich registry entries with current availability and reverse references from supplied projects.
 pub fn resource_statuses(
     registry_path: &Path,
     registry: &Registry,
@@ -127,21 +136,15 @@ pub fn validate(
     registry_path: &Path,
     registry: &Registry,
 ) -> ValidationReport {
-    let mut issues = Vec::new();
-    let mut projects = Vec::new();
-    for directory in &repositories.repositories {
-        match load_manifest(&directory.join("refyard.yaml")) {
-            Ok(manifest) => projects.push(Project {
-                path: directory.clone(),
-                requires: manifest.requires,
-            }),
-            Err(error) => issues.push(ValidationIssue {
-                kind: "unavailable_project",
-                location: directory.display().to_string(),
-                message: user_message(&error),
-            }),
-        }
-    }
+    let (projects, manifest_issues) = inspect_projects(&repositories.repositories);
+    let mut issues: Vec<_> = manifest_issues
+        .into_iter()
+        .map(|issue| ValidationIssue {
+            kind: "unavailable_project",
+            location: issue.path.display().to_string(),
+            message: issue.message,
+        })
+        .collect();
     for root in &repositories.scan_roots {
         if !root.is_dir() {
             issues.push(ValidationIssue {
@@ -194,4 +197,17 @@ pub fn validate(
         }
     }
     ValidationReport { issues }
+}
+
+/// List registry mappings, current availability, and live dependents without requiring an index.
+pub fn inspect_registry(
+    registry_path: &Path,
+    registry: &Registry,
+    repositories: &Repositories,
+) -> RegistryListing {
+    let (projects, issues) = inspect_projects(&repositories.repositories);
+    RegistryListing {
+        artifacts: resource_statuses(registry_path, registry, &projects),
+        issues,
+    }
 }

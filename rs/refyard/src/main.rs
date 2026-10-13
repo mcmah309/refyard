@@ -16,7 +16,7 @@ use refyard::{
     configuration::resolve_locations,
     discovery::{ScanOptions, register, scan},
     errors::{user_error, user_message},
-    graph::{references, resource_statuses, validate},
+    graph::{inspect_registry, references, validate},
     manifest::{Artifact, ResourceKey, ensure_registry, load_registry, validate_resources},
     storage::{
         load_index, load_repositories, lock_state, physical_path, save_repositories, write_yaml,
@@ -76,8 +76,6 @@ enum Command {
     },
     /// List indexed project dependencies.
     Projects,
-    /// List registered resources with indexed dependents and current availability.
-    Resources,
     /// Find projects that reference this resource ID.
     Refs {
         id: String,
@@ -85,8 +83,6 @@ enum Command {
         #[arg(long)]
         revision: Option<String>,
     },
-    /// Show the indexed dependency graph, including scan errors and unresolved IDs.
-    Graph,
     /// Validate live manifests and registry paths. Exits 1 if any warnings are found.
     Validate,
     /// Preview unreferenced registered locations, or explicitly delete eligible resources.
@@ -128,7 +124,7 @@ enum RegistryCommand {
         #[arg(long)]
         revision: Option<String>,
     },
-    /// Show the authoritative machine registry.
+    /// List registered resources with current availability and live known project dependents.
     List,
 }
 
@@ -234,7 +230,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
                         "Could not save the registry. Check directory permissions and free space.",
                     )?;
                 }
-                RegistryCommand::List => {}
+                RegistryCommand::List => {
+                    let listing = inspect_registry(&registry_path, &registry, &repositories);
+                    print_output(&listing, cli.json)?;
+                    return Ok(if listing.issues.is_empty() {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    });
+                }
             }
             print_output(&registry, cli.json)?;
         }
@@ -263,14 +267,6 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let index = load_index(&state_directory, &repositories)?;
             print_output(&index.projects, cli.json)?;
         }
-        Command::Resources => {
-            let index = load_index(&state_directory, &repositories)?;
-            let registry = load_registry(&registry_path)?;
-            print_output(
-                &resource_statuses(&registry_path, &registry, &index.projects),
-                cli.json,
-            )?;
-        }
         Command::Refs { id, revision } => {
             let index = load_index(&state_directory, &repositories)?;
             let registry = load_registry(&registry_path)?;
@@ -279,7 +275,6 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 cli.json,
             )?;
         }
-        Command::Graph => print_output(&load_index(&state_directory, &repositories)?, cli.json)?,
         Command::Validate => {
             let registry = load_registry(&registry_path)?;
             let report = validate(&repositories, &registry_path, &registry);
